@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>J.A.R.V.I.S</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="scanline"></div>
+<div class="alarm-vignette"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark"><span></span></div>
+    <div>
+      <h1 id="brand-name">J.A.R.V.I.S</h1>
+      <p>SISTEMA DE ASISTENCIA PERSONAL · 100% LOCAL</p>
+    </div>
+  </div>
+  <div class="status-row">
+    <div class="pill" id="st-llm"><i></i><span>NÚCLEO LLM</span><b id="st-model">—</b></div>
+    <div class="pill" id="st-stt"><i></i><span>RECONOCIMIENTO</span><b>WHISPER</b></div>
+    <div class="pill on" id="st-tts"><i></i><span>SÍNTESIS</span><b>PIPER</b></div>
+  </div>
+  <div class="clock">
+    <div id="clock-time">00:00:00</div>
+    <div id="clock-date">—</div>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ============ TELEMETRÍA ============ -->
+  <section class="panel left">
+    <div class="panel-title"><span>TELEMETRÍA</span><em id="uptime">—</em></div>
+
+    <div class="gauges">
+      <div class="gauge" id="g-cpu"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="50"/><circle class="ticks" cx="60" cy="60" r="56"/><circle class="bar" cx="60" cy="60" r="50"/></svg>
+        <div class="g-center"><b>0</b><small>%</small></div><label>CPU</label><sub id="cpu-sub">—</sub></div>
+      <div class="gauge" id="g-ram"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="50"/><circle class="ticks" cx="60" cy="60" r="56"/><circle class="bar" cx="60" cy="60" r="50"/></svg>
+        <div class="g-center"><b>0</b><small>%</small></div><label>RAM</label><sub id="ram-sub">—</sub></div>
+      <div class="gauge" id="g-gpu"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="50"/><circle class="ticks" cx="60" cy="60" r="56"/><circle class="bar" cx="60" cy="60" r="50"/></svg>
+        <div class="g-center"><b>0</b><small>%</small></div><label>GPU</label><sub id="gpu-sub">—</sub></div>
+      <div class="gauge" id="g-vram"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="50"/><circle class="ticks" cx="60" cy="60" r="56"/><circle class="bar" cx="60" cy="60" r="50"/></svg>
+        <div class="g-center"><b>0</b><small>%</small></div><label>VRAM</label><sub id="vram-sub">—</sub></div>
+    </div>
+
+    <div class="sub-title">HISTORIAL · 60 s
+      <span class="legend"><i class="c1"></i>CPU <i class="c2"></i>RAM <i class="c3"></i>GPU</span></div>
+    <canvas id="history" class="history"></canvas>
+
+    <div class="sub-title">NÚCLEOS</div>
+    <div class="cores" id="cores"></div>
+
+    <div class="info-grid">
+      <div><span>TEMP. GPU</span><b id="i-temp">—</b></div>
+      <div><span>DISCO C:</span><b id="i-disk">—</b></div>
+      <div><span>RED ↓</span><b id="i-down">—</b></div>
+      <div><span>RED ↑</span><b id="i-up">—</b></div>
+      <div><span>PROCESOS</span><b id="i-procs">—</b></div>
+      <div><span>GPU</span><b id="i-gpuname">—</b></div>
+    </div>
+
+    <div class="sub-title">MICRÓFONO</div>
+    <select id="mic-select"></select>
+  </section>
+
+  <!-- ============ NÚCLEO ============ -->
+  <section class="core">
+    <div class="reactor-wrap">
+      <canvas id="reactor"></canvas>
+      <div class="destruct-overlay">
+        <div class="destruct-warning">⚠ SECUENCIA DE AUTODESTRUCCIÓN ⚠</div>
+        <div id="destruct-count">10</div>
+      </div>
+      <div class="reactor-label">
+        <div id="state-text">INICIALIZANDO</div>
+        <div id="state-sub">cargando módulos…</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="ctl" id="btn-voice" title="Activar/desactivar voz">
+        <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+      </button>
+      <button class="mic" id="btn-mic" title="Hablar">
+        <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
+      </button>
+      <button class="ctl" id="btn-stop" title="Detener">
+        <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+      </button>
+    </div>
+    <div class="hints">
+      <label class="switch"><input type="checkbox" id="chk-continuous"><span></span>ESCUCHA CONTINUA · di «<b id="wake-word">Jarvis</b>»</label>
+      <span class="kbd" id="hotkey">Ctrl+Alt+J</span>
+    </div>
+
+    <div class="dock">
+      <div class="dock-group" id="quick-apps"></div>
+      <div class="dock-group media">
+        <button data-media="prev" title="Anterior"><svg viewBox="0 0 24 24"><path d="M7 6v12M18 6l-8 6 8 6z"/></svg></button>
+        <button data-media="play" title="Play/Pausa"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+        <button data-media="next" title="Siguiente"><svg viewBox="0 0 24 24"><path d="M17 6v12M6 6l8 6-8 6z"/></svg></button>
+        <button data-media="down" title="Bajar volumen"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zM16 12h5"/></svg></button>
+        <button data-media="up" title="Subir volumen"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zM16 12h5M18.5 9.5v5"/></svg></button>
+        <button data-media="mute" title="Silenciar"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zM16 9l5 6M21 9l-5 6"/></svg></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ COMUNICACIONES ============ -->
+  <section class="panel right">
+    <div class="panel-title"><span>REGISTRO DE COMUNICACIONES</span><em id="msg-count">0</em></div>
+    <div class="log" id="log"></div>
+    <form class="input-row" id="input-form" autocomplete="off">
+      <span class="prompt">&gt;</span>
+      <input id="input" placeholder="Escribe una orden o pregunta…" spellcheck="false">
+      <button type="submit" title="Enviar"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2.5-6.5z"/></svg></button>
+    </form>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "nombre_asistente": "JARVIS",
+  "tratamiento": "señor",
+  "ollama_url": "http://127.0.0.1:11434",
+  "modelo_llm": "gemma4:e2b",
+  "whisper_modelo": "small",
+  "whisper_dispositivo": "cpu",
+  "microfono": "Mic in at rear panel",
+  "voz_piper": "models/piper/es_ES-davefx-medium.onnx",
+  "velocidad_voz": 1.05,
+  "voz_activada": true,
+  "palabra_activacion": "jarvis",
+  "escucha_continua": false,
+  "atajo_teclado": "ctrl+alt+j",
+  "aliases_apps": {
+    "navegador": "Google Chrome",
+    "chrome": "Google Chrome",
+    "musica": "Spotify",
+    "codigo": "Visual Studio Code",
+    "vs code": "Visual Studio Code",
+    "visual studio": "Visual Studio Code",
+    "calculadora": "Calculadora",
+    "bloc de notas": "Bloc de notas",
+    "notas": "Bloc de notas",
+    "explorador": "Explorador de archivos",
+    "archivos": "Explorador de archivos",
+    "configuracion": "Configuración",
+    "ajustes": "Configuración"
+  },
+  "accesos_rapidos": [
+    "Spotify",
+    "Google Chrome",
+    "Discord",
+    "Steam",
+    "Visual Studio Code"
+  ]
+}

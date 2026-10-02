@@ -1,0 +1,10 @@
+# Entorno virtual y caché de Python
+.venv/
+__pycache__/
+*.pyc
+
+# Modelos pesados (Whisper / Piper) - se descargan aparte
+models/
+
+# Logs
+*.log
