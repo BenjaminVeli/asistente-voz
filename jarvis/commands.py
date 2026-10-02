@@ -19,6 +19,10 @@ RELLENO = re.compile(
 FINAL = re.compile(r"(?:\s+(?:por favor|porfa|porfavor|gracias|jarvis|ya|ahora|ahora mismo|rapido))+$")
 ARTICULO = r"(?:(?:el|la|los|las|un|una|mi|el programa|la aplicacion|la app|el juego)\s+)?"
 
+# Whisper deforma «Spotify» a menudo: «espotify», «spotifai», «spoti fy», «es potify»...
+SPOTIFY = re.compile(r"\b(?:e?s ?pot[iy] ?f[aiy]+e?|potif[iy]|e?spot[iy])\b")
+VERBO_MUSICA = r"(?:pon|ponme|reproduce|reproduceme|toca|busca|buscame|quiero escuchar|escuchar)"
+
 NUMEROS = [(re.compile(r"\bdoble cero\b"), "00"), (re.compile(r"\bcero\b"), "0"), (re.compile(r"\bdiez\b"), "10")]
 
 
@@ -55,6 +59,16 @@ def es_cancelacion(texto: str) -> bool:
     return bool(CODIGO_CANCELACION.search(_compacto(texto)))
 
 
+_ADIOS = (r"(?:buenas noches|descansa|que descanses|hasta manana|hasta luego|hasta pronto|adios|nos vemos|chao|chau|"
+          r"me voy a dormir|a dormir|vete a dormir|apagate|desconectate|cierrate|"
+          r"(?:apaga|cierra|desconecta) (?:el asistente|el programa|jarvis)|"
+          r"(?:cierra|cerrar|finaliza|finalizar|termina|terminar) (?:la )?sesion|"
+          r"(?:cerremos|cerramos|terminemos|terminamos|acabemos|acabamos|finalicemos|finalizamos|paremos|"
+          r"lo dejamos|dejemoslo|dejemoslo aqui)(?: (?:la sesion|aqui|por hoy|por ahora|el dia|ya))*|"
+          r"(?:eso es todo|eso seria todo|suficiente|es todo|ya esta|ya es suficiente) por hoy)")
+DESPEDIDA = re.compile(rf"^(?:(?:gracias|muchas gracias|eso es todo|bueno|vale|ok|pues|venga|jarvis)\s+)*"
+                       rf"{_ADIOS}(?:(?:\s+(?:y|jarvis|tu tambien|por hoy))*\s+{_ADIOS})*$")
+
 RECORDAR = re.compile(
     r"^(?:(?:hey|oye|ey|hola|jarvis|yarvis|por favor)\W+)*(?:quiero que\s+|necesito que\s+)?"
     r"(?:recuerda|recuerde|guarda en (?:tu |la )?memoria|apunta)\s+que\s+(.+?)[.!]*$", re.I)
@@ -81,8 +95,7 @@ class Commands:
         self.memoria = memoria
         self.on_clear = on_clear or (lambda: None)
         self.on_stop_voice = on_stop_voice or (lambda: None)
-        w = normalize(cfg.get("palabra_activacion", "jarvis"))
-        self.wake = re.compile(rf"^(?:(?:hey|oye|ey|hola)\s+)?(?:{w}|yarvis|charvis|jarbis|harvis|jarvi)\b\s*")
+        self.set_palabra(cfg.get("palabra_activacion", "jarvis"))
         self.reglas = [
             (r"^(abre|abrir|abreme|ejecuta|inicia|lanza|cierra|cerrar|pon|ponme|reproduce|busca|buscame)$", self.incompleta),
             (r"^(?:callate|calla|deja de hablar|para de hablar|silencio jarvis|basta)$", self.callar),
@@ -121,6 +134,10 @@ class Commands:
              r"(?:(?:musica|canciones|la cancion|el tema|el album|la playlist|algo) (?:de |del )?)?(.+?)"
              r"(?:\s+en spotify)?$", self.spotify),
             (r"^(?:busca|buscame)\s+(.+?)\s+en spotify$", self.spotify),
+            # «Abre Spotify y pon X»: buscar ya abre Spotify, así que basta con eso.
+            (rf"^(?:abre|abrir|abreme|ejecuta|inicia|lanza|arranca|abre me)\s+spotify\s+y\s+(?:me\s+)?{VERBO_MUSICA}\s+"
+             r"(?:(?:musica|canciones|la cancion|el tema|el album|la playlist|algo) (?:de |del )?)?(.+?)"
+             r"(?:\s+en spotify)?$", self.spotify),
             # --- Apps y carpetas ---
             (rf"^(?:abre|abrir|abreme|ejecuta|inicia|lanza|arranca|abre me)\s+(?:la )?carpeta (?:de )?(?:mis )?(\w+)$", self.carpeta),
             (rf"^(?:abre|abrir|abreme|ejecuta|inicia|lanza|arranca|abre me)\s+{ARTICULO}(.+)$", self.abrir),
@@ -130,11 +147,26 @@ class Commands:
         self.reglas = [(re.compile(p), f) for p, f in self.reglas]
 
     # ------------------------------------------------------------------
+    def set_palabra(self, palabra: str):
+        w = re.escape(normalize(palabra))
+        self.wake = re.compile(rf"^(?:(?:hey|oye|ey|hola)\s+)?(?:{w}|yarvis|charvis|jarbis|harvis|jarvi)\b\s*")
+
     def quitar_activacion(self, texto: str) -> tuple[bool, str]:
         """Devuelve (tenía palabra de activación, resto del texto normalizado)."""
         t = normalize(texto)
         m = self.wake.match(t)
         return (bool(m), t[m.end():] if m else t)
+
+    def _limpiar(self, texto: str) -> str:
+        """Texto normalizado sin palabra de activación ni muletillas."""
+        _, t = self.quitar_activacion(texto)
+        t = RELLENO.sub("", t).strip()
+        t = FINAL.sub("", t).strip()
+        return SPOTIFY.sub("spotify", t)
+
+    def es_despedida(self, texto: str) -> bool:
+        """«Buenas noches», «descansa», «cerremos por hoy»...: el usuario da la sesión por terminada."""
+        return bool(DESPEDIDA.match(self._limpiar(texto)))
 
     def ejecutar(self, texto: str) -> str | None:
         """Ejecuta la orden si coincide con alguna regla. Devuelve la respuesta o None si no es una orden."""
@@ -142,9 +174,7 @@ class Commands:
         m = RECORDAR.match(texto.strip())
         if m:
             return self.recordar(m.group(1))
-        _, t = self.quitar_activacion(texto)
-        t = RELLENO.sub("", t).strip()
-        t = FINAL.sub("", t).strip()
+        t = self._limpiar(texto)
         for patron, accion in self.reglas:
             m = patron.match(t)
             if m:
@@ -256,6 +286,12 @@ class Commands:
         if nombre in CARPETAS:
             return self.carpeta(nombre)
         encontrado = self.apps.find(nombre)
+        if not encontrado and " y " in nombre:
+            # «Abre Discord y sube el volumen»: dos órdenes encadenadas.
+            app, resto = nombre.split(" y ", 1)
+            primera = self.abrir(app)
+            segunda = self.ejecutar(resto)
+            return f"{primera} {segunda}" if segunda else primera
         if encontrado:
             titulo, appid = encontrado
             self.apps.launch(appid)

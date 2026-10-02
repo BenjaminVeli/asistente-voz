@@ -83,6 +83,14 @@ class LLM:
         except Exception:
             return False
 
+    def modelos(self) -> list[str]:
+        """Modelos instalados en Ollama."""
+        try:
+            r = requests.get(f"{self.url}/api/tags", timeout=2)
+            return sorted(m["name"] for m in r.json().get("models", []))
+        except Exception:
+            return []
+
     def warmup(self):
         """Carga el modelo en memoria para que la primera respuesta sea rápida."""
         try:

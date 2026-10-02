@@ -41,13 +41,23 @@ Para ver los logs: `.venv\Scripts\python.exe main.py` (con `--debug` abre las De
 | Peticiones indirectas: «Ponme algo tranquilo para concentrarme», «Abre lo de programar», «¿Va lento el ordenador?» | Gemma elige y ejecuta la acción adecuada |
 | Cualquier otra cosa | Conversa con Gemma (conoce lo que hay en la memoria) |
 
-## Personalizar (`config.json`)
+## Personalizar
+
+El botón del **engranaje ⚙** (arriba a la derecha) abre el panel de ajustes, que se aplican al momento y se
+guardan en `config.json`:
+
+- **Voz**: voces neuronales de Piper (todas las de `models/piper`) o voces de Windows, con botón de prueba.
+- **Velocidad** y **volumen** de la voz.
+- **Nombre** del asistente, **cómo te llama** y **palabra de activación**.
+- **Modelo de Ollama** (lista los modelos instalados).
+
+### `config.json`
 
 - `microfono`: parte del nombre del micrófono (también se elige en la interfaz).
 - `aliases_apps`: apodos → nombre de la app en el menú Inicio (p. ej. `"juego": "Minecraft Launcher"`).
 - `accesos_rapidos`: botones de la barra inferior.
 - `modelo_llm`, `whisper_modelo` (`base` = más rápido, `medium` = más preciso), `velocidad_voz`, `tratamiento`, `atajo_teclado`.
-- Otras voces de Piper: <https://huggingface.co/rhasspy/piper-voices> (descarga `.onnx` + `.onnx.json` en `models/piper` y cambia `voz_piper`).
+- Otras voces de Piper: <https://huggingface.co/rhasspy/piper-voices> (descarga `.onnx` + `.onnx.json` en `models/piper` y elígela desde el engranaje).
 
 ## Estructura
 

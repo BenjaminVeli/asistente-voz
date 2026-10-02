@@ -23,11 +23,43 @@
     <div class="pill" id="st-stt"><i></i><span>RECONOCIMIENTO</span><b>WHISPER</b></div>
     <div class="pill on" id="st-tts"><i></i><span>SÍNTESIS</span><b>PIPER</b></div>
   </div>
-  <div class="clock">
-    <div id="clock-time">00:00:00</div>
-    <div id="clock-date">—</div>
+  <div class="top-right">
+    <div class="clock">
+      <div id="clock-time">00:00:00</div>
+      <div id="clock-date">—</div>
+    </div>
+    <button class="gear" id="btn-settings" title="Ajustes">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
   </div>
 </header>
+
+<!-- ============ AJUSTES ============ -->
+<div class="settings-backdrop" id="settings" hidden>
+  <div class="settings-panel" role="dialog" aria-labelledby="settings-title">
+    <div class="panel-title"><span id="settings-title">AJUSTES DEL SISTEMA</span>
+      <button class="close" id="settings-close" title="Cerrar (Esc)">✕</button></div>
+
+    <div class="sub-title">VOZ</div>
+    <label class="field"><span>Voz</span><select id="set-voz"></select></label>
+    <label class="field"><span>Velocidad <b id="set-vel-val">1.00×</b></span>
+      <input type="range" id="set-vel" min="0.6" max="1.8" step="0.05"></label>
+    <label class="field"><span>Volumen <b id="set-vol-val">100%</b></span>
+      <input type="range" id="set-vol" min="0.1" max="1.5" step="0.05"></label>
+    <button class="btn" id="set-test">▶ PROBAR VOZ</button>
+    <p class="hint">Para más voces neuronales, copia archivos <code>.onnx</code> + <code>.onnx.json</code> de Piper en <code>models/piper</code>.</p>
+
+    <div class="sub-title">PERSONALIDAD</div>
+    <label class="field"><span>Nombre del asistente</span><input id="set-nombre" maxlength="24" spellcheck="false"></label>
+    <label class="field"><span>Cómo te llama</span><input id="set-trato" maxlength="24" spellcheck="false"></label>
+    <label class="field"><span>Palabra de activación</span><input id="set-palabra" maxlength="24" spellcheck="false"></label>
+
+    <div class="sub-title">CEREBRO</div>
+    <label class="field"><span>Modelo de Ollama</span><select id="set-modelo"></select></label>
+
+    <div class="settings-status" id="settings-status"></div>
+  </div>
+</div>
 
 <main class="layout">
   <!-- ============ TELEMETRÍA ============ -->

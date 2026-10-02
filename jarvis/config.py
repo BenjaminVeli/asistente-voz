@@ -13,8 +13,11 @@ DEFAULTS = {
     "whisper_modelo": "small",
     "whisper_dispositivo": "cpu",
     "microfono": "Mic in at rear panel",
+    "motor_voz": "piper",  # "piper" (voz neuronal) o "windows" (voces SAPI del sistema)
     "voz_piper": "models/piper/es_ES-davefx-medium.onnx",
+    "voz_windows": "",
     "velocidad_voz": 1.05,
+    "volumen_voz": 1.0,
     "voz_activada": True,
     "palabra_activacion": "jarvis",
     "escucha_continua": False,

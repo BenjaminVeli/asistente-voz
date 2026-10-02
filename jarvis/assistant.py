@@ -40,6 +40,20 @@ def saludo_inicial(tratamiento: str, hora: int | None = None) -> str:
     return f"{saludo}, {tratamiento}. {random.choice(extra)}"
 
 
+def despedida(tratamiento: str, hora: int | None = None) -> str:
+    """Despedida al cerrar la sesión, según la hora."""
+    hora = time.localtime().tm_hour if hora is None else hora
+    if 20 <= hora or hora < 6:
+        opciones = [f"Buenas noches, {tratamiento}. Que descanse.",
+                    f"Que pase buena noche, {tratamiento}. Apagando sistemas.",
+                    f"Descanse, {tratamiento}. Aquí estaré cuando me necesite."]
+    else:
+        opciones = [f"Hasta luego, {tratamiento}. Apagando sistemas.",
+                    f"Ha sido un placer, {tratamiento}. Cerrando sesión.",
+                    f"Hasta pronto, {tratamiento}. Aquí estaré cuando me necesite."]
+    return random.choice(opciones)
+
+
 def _log(msg: str):
     """Diagnóstico de la autodestrucción (la app corre sin consola)."""
     linea = f"{time.strftime('%H:%M:%S')} {msg}"
@@ -140,6 +154,9 @@ class Assistant:
         self.tts.stop()
         if es_autodestruccion(texto):
             self._iniciar_autodestruccion()
+            return
+        if self.commands.es_despedida(texto):
+            self._despedirse()
             return
         with self._busy:
             try:
@@ -311,6 +328,16 @@ class Assistant:
                 if not self._destruct.is_set():
                     self.tts.wait()
         self.set_state("idle")
+
+    def _despedirse(self):
+        """Se despide y, cuando termina de hablar, pide a la interfaz que cierre la aplicación."""
+        self._continuous.clear()  # que no se oiga a sí mismo mientras se despide
+        self.listener.cancel.set()
+        self.say(despedida(self.cfg["tratamiento"]))
+        time.sleep(0.3)  # deja que la voz arranque antes de comprobar si sigue hablando
+        self.tts.wait(timeout=15)
+        time.sleep(0.5)
+        self.emit("quit", None)
 
     # --- autodestrucción -------------------------------------------------
     @property

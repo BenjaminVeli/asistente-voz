@@ -98,6 +98,7 @@ const handlers = {
   selfdestruct: (d) => {
     const was = ui.destruct;
     ui.destruct = !!d.active;
+    if (ui.destruct) closeSettings();
     document.documentElement.classList.toggle("destruct", ui.destruct);
     if (ui.destruct) {
       $("#state-text").textContent = "AUTODESTRUCCIÓN";
@@ -117,6 +118,7 @@ const handlers = {
       if (d.aborted) $("#state-sub").textContent = "autodestrucción abortada";
     }
   },
+  tts_engine: (m) => { $("#st-tts b").textContent = m === "piper" ? "PIPER" : "WINDOWS"; },
   status: (s) => {
     const llm = $("#st-llm");
     llm.className = "pill " + (s.llm ? "on" : "");
@@ -419,25 +421,119 @@ $("#input-form").addEventListener("submit", (e) => {
 
 // Barra espaciadora = hablar (cuando no se está escribiendo)
 document.addEventListener("keydown", (e) => {
-  if (e.code === "Space" && document.activeElement !== $("#input") && document.activeElement.tagName !== "SELECT") {
+  const tag = document.activeElement.tagName;
+  if (e.code === "Escape" && settingsOpen()) return closeSettings();
+  if (settingsOpen()) return;
+  if (e.code === "Space" && tag !== "INPUT" && tag !== "SELECT") {
     e.preventDefault();
     api() && api().listen();
   }
   if (e.code === "Escape") api() && api().stop();
 });
 
+/* ================= Ajustes (engranaje) ================= */
+const settingsOpen = () => !$("#settings").hidden;
+let statusTimer;
+
+function settingsStatus(msg, err = false) {
+  const el = $("#settings-status");
+  el.textContent = msg;
+  el.classList.toggle("err", err);
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => { el.textContent = ""; }, 2500);
+}
+
+async function saveSetting(clave, valor, okMsg = "✓ guardado") {
+  if (!api()) return false;
+  const r = await api().update_setting(clave, valor);
+  settingsStatus(r.ok ? okMsg : "✕ " + r.error, !r.ok);
+  return r.ok;
+}
+
+function fillSelect(sel, items, current) {
+  sel.innerHTML = "";
+  for (const it of items) {
+    const o = document.createElement("option");
+    o.value = it.value; o.textContent = it.label;
+    if (it.value === current) o.selected = true;
+    (it.group ? groupOf(sel, it.group) : sel).appendChild(o);
+  }
+}
+function groupOf(sel, label) {
+  let g = [...sel.querySelectorAll("optgroup")].find((x) => x.label === label);
+  if (!g) { g = document.createElement("optgroup"); g.label = label; sel.appendChild(g); }
+  return g;
+}
+
+async function openSettings() {
+  if (ui.destruct || !api()) return;
+  const s = await api().get_settings();
+  fillSelect($("#set-voz"), s.voces.map((v) => ({
+    value: `${v.motor}|${v.id}`, label: v.nombre,
+    group: v.motor === "piper" ? "NEURONAL · PIPER" : "SISTEMA · WINDOWS",
+  })), `${s.motor}|${s.voz}`);
+  const modelos = s.modelos.length ? s.modelos : [s.modelo];
+  fillSelect($("#set-modelo"), modelos.map((m) => ({ value: m, label: m })), s.modelo);
+  $("#set-vel").value = s.velocidad; $("#set-vel-val").textContent = Number(s.velocidad).toFixed(2) + "×";
+  $("#set-vol").value = s.volumen; $("#set-vol-val").textContent = Math.round(s.volumen * 100) + "%";
+  $("#set-nombre").value = s.nombre;
+  $("#set-trato").value = s.tratamiento;
+  $("#set-palabra").value = s.palabra;
+  $("#settings-status").textContent = "";
+  $("#settings").hidden = false;
+  $("#btn-settings").classList.add("open");
+}
+function closeSettings() {
+  $("#settings").hidden = true;
+  $("#btn-settings").classList.remove("open");
+}
+
+$("#btn-settings").addEventListener("click", () => (settingsOpen() ? closeSettings() : openSettings()));
+$("#settings-close").addEventListener("click", closeSettings);
+$("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") closeSettings(); });
+
+$("#set-voz").addEventListener("change", async (e) => {
+  const [motor, ...rest] = e.target.value.split("|");
+  settingsStatus("cargando voz…");
+  if (await saveSetting("voz", { motor, id: rest.join("|") }, "✓ voz cambiada")) api().test_voice();
+});
+$("#set-vel").addEventListener("input", (e) => { $("#set-vel-val").textContent = Number(e.target.value).toFixed(2) + "×"; });
+$("#set-vel").addEventListener("change", (e) => saveSetting("velocidad", e.target.value));
+$("#set-vol").addEventListener("input", (e) => { $("#set-vol-val").textContent = Math.round(e.target.value * 100) + "%"; });
+$("#set-vol").addEventListener("change", (e) => saveSetting("volumen", e.target.value));
+$("#set-test").addEventListener("click", () => api() && api().test_voice());
+$("#set-modelo").addEventListener("change", (e) => saveSetting("modelo", e.target.value, "✓ modelo cambiado"));
+
+$("#set-nombre").addEventListener("change", async (e) => {
+  if (await saveSetting("nombre", e.target.value)) applyName(e.target.value.trim());
+});
+$("#set-trato").addEventListener("change", (e) => saveSetting("tratamiento", e.target.value));
+$("#set-palabra").addEventListener("change", async (e) => {
+  if (await saveSetting("palabra", e.target.value)) applyWake(e.target.value.trim());
+});
+
+function applyName(nombre) {
+  ui.name = nombre.toUpperCase();
+  $("#brand-name").textContent = ui.name.split("").join(".");
+  document.title = ui.name.split("").join(".");
+}
+function applyWake(palabra) {
+  ui.wake = palabra.charAt(0).toUpperCase() + palabra.slice(1);
+  $("#wake-word").textContent = ui.wake;
+  STATES.listening_wake[1] = `di «${ui.wake}» seguido de tu orden`;
+  if (ui.state === "listening_wake") setState(ui.state);
+}
+
 let started = false;
 async function init() {
   if (started) return;
   started = true;
   const cfg = await api().get_init();
-  ui.name = cfg.nombre;
-  $("#brand-name").textContent = cfg.nombre.split("").join(".");
+  applyName(cfg.nombre);
   $("#st-model").textContent = cfg.modelo;
+  handlers.tts_engine(cfg.motor_voz);
   $("#hotkey").textContent = cfg.atajo.replace(/\b\w/g, (c) => c.toUpperCase());
-  ui.wake = cfg.palabra.charAt(0).toUpperCase() + cfg.palabra.slice(1);
-  $("#wake-word").textContent = ui.wake;
-  STATES.listening_wake[1] = `di «${ui.wake}» seguido de tu orden`;
+  applyWake(cfg.palabra);
   $("#chk-continuous").checked = cfg.continua;
   $("#btn-voice").classList.toggle("off", !cfg.voz);
 

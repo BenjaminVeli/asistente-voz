@@ -14,6 +14,7 @@ import webview
 from jarvis import config, media
 from jarvis.assistant import Assistant
 from jarvis.stt import listar_microfonos
+from jarvis.tts import listar_voces
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -29,6 +30,10 @@ class Api:
 
     # --- puente Python -> interfaz -------------------------------------
     def _emit(self, tipo, datos=None):
+        if tipo == "quit":  # despedida: cerrar la ventana termina la aplicación (ver main)
+            if self._window:
+                self._window.destroy()
+            return
         self._events.put({"type": tipo, "data": datos})
 
     def _pump(self):
@@ -70,6 +75,7 @@ class Api:
             "microfono": self._cfg.get("microfono", ""),
             "continua": self._cfg.get("escucha_continua", False),
             "voz": self._cfg.get("voz_activada", True),
+            "motor_voz": self._cfg.get("motor_voz", "piper"),
             "accesos": self._cfg.get("accesos_rapidos", []),
             "palabra": self._cfg.get("palabra_activacion", "jarvis"),
         }
@@ -117,6 +123,74 @@ class Api:
         config.save(self._cfg)
         if self._assistant:
             self._assistant.listener.set_microfono(nombre)
+
+    # --- ajustes (panel del engranaje) ------------------------------------
+    def get_settings(self):
+        c = self._cfg
+        return {
+            "voces": listar_voces(),
+            "motor": c.get("motor_voz", "piper"),
+            "voz": c["voz_piper"] if c.get("motor_voz", "piper") == "piper" else c.get("voz_windows", ""),
+            "velocidad": c.get("velocidad_voz", 1.0),
+            "volumen": c.get("volumen_voz", 1.0),
+            "nombre": c["nombre_asistente"],
+            "tratamiento": c["tratamiento"],
+            "palabra": c.get("palabra_activacion", "jarvis"),
+            "modelos": self._assistant.llm.modelos() if self._assistant else [],
+            "modelo": c["modelo_llm"],
+        }
+
+    def update_setting(self, clave, valor):
+        """Aplica un ajuste al momento y lo guarda en config.json."""
+        if self._bloqueado():
+            return {"ok": False, "error": "Controles bloqueados durante la autodestrucción"}
+        a, c = self._assistant, self._cfg
+        if clave == "voz":
+            motor, voz_id = valor["motor"], valor["id"]
+            if a and not a.tts.set_voice(motor, voz_id):
+                return {"ok": False, "error": "No se pudo cargar esa voz"}
+            c["motor_voz"] = motor
+            c["voz_piper" if motor == "piper" else "voz_windows"] = voz_id
+            self._emit("tts_engine", motor)
+        elif clave == "velocidad":
+            c["velocidad_voz"] = round(float(valor), 2)
+            if a:
+                a.tts.set_speed(c["velocidad_voz"])
+        elif clave == "volumen":
+            c["volumen_voz"] = round(float(valor), 2)
+            if a:
+                a.tts.set_volume(c["volumen_voz"])
+        elif clave in ("nombre", "tratamiento", "palabra"):
+            valor = str(valor).strip()
+            if not valor:
+                return {"ok": False, "error": "No puede quedar vacío"}
+            if clave == "nombre":
+                c["nombre_asistente"] = valor
+            elif clave == "tratamiento":
+                c["tratamiento"] = valor
+            else:
+                c["palabra_activacion"] = valor.lower()
+                if a:
+                    a.commands.set_palabra(valor)
+        elif clave == "modelo":
+            c["modelo_llm"] = str(valor)
+            if a:
+                a.llm.model = c["modelo_llm"]
+                threading.Thread(target=a.llm.warmup, daemon=True).start()
+                self._emit("status", {"llm": True, "model": c["modelo_llm"]})
+        else:
+            return {"ok": False, "error": f"Ajuste desconocido: {clave}"}
+        config.save(c)
+        return {"ok": True}
+
+    def test_voice(self):
+        if self._assistant and not self._bloqueado():
+            a = self._assistant
+            if not a.tts.enabled:
+                self._emit("error", "La voz está desactivada: actívala con el botón del altavoz para oír la prueba.")
+                return
+            a.tts.stop()
+            a.tts.say(f"Hola, {self._cfg['tratamiento']}. Así es como sueno ahora. ¿Le parece bien?")
 
     def media(self, accion):
         if self._bloqueado():
