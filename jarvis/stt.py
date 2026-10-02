@@ -1,4 +1,5 @@
 """Grabación desde el micrófono con detección de voz por energía y transcripción local con faster-whisper."""
+import contextlib
 import threading
 import time
 
@@ -59,8 +60,12 @@ class Listener:
         print("[stt] Whisper listo")
 
     def record(self, start_timeout: float | None = 7.0, max_seconds: float = 15.0,
-               silence_s: float = 0.9, should_pause=None) -> np.ndarray | None:
-        """Graba una frase. Devuelve audio float32 a 16 kHz o None si no se habló."""
+               silence_s: float = 0.9, should_pause=None, stream=None) -> np.ndarray | None:
+        """Graba una frase. Devuelve audio float32 a 16 kHz o None si no se habló.
+
+        stream: un InputStream ya abierto (16 kHz, float32) del que seguir leyendo; lo usa la palabra de
+        activación para no perder lo que se dice justo después de «Jarvis».
+        """
         self.cancel.clear()
         blocks: list[np.ndarray] = []
         pre: list[np.ndarray] = []          # audio previo al inicio de la voz (no cortar la primera sílaba)
@@ -69,8 +74,8 @@ class Listener:
         silence = 0.0
         t0 = time.time()
         block_s = 0.03
-        with sd.InputStream(samplerate=SR, channels=1, dtype="float32", device=self.device,
-                            blocksize=int(SR * block_s)) as stream:
+        abrir = contextlib.nullcontext(stream) if stream is not None else             sd.InputStream(samplerate=SR, channels=1, dtype="float32", device=self.device, blocksize=int(SR * block_s))
+        with abrir as stream:
             while not self.cancel.is_set():
                 data, _ = stream.read(int(SR * block_s))
                 chunk = data[:, 0].copy()

@@ -53,6 +53,9 @@
     <label class="field"><span>Nombre del asistente</span><input id="set-nombre" maxlength="24" spellcheck="false"></label>
     <label class="field"><span>Cómo te llama</span><input id="set-trato" maxlength="24" spellcheck="false"></label>
     <label class="field"><span>Palabra de activación</span><input id="set-palabra" maxlength="24" spellcheck="false"></label>
+    <label class="field"><span>Sensibilidad al oír «Jarvis» <b id="set-sens-val">50%</b></span>
+      <input type="range" id="set-sens" min="0.1" max="0.8" step="0.05"></label>
+    <p class="hint" id="set-sens-hint">Si se activa sola con la tele o la música, bájala; si le cuesta oírte, súbela.</p>
 
     <div class="sub-title">CEREBRO</div>
     <label class="field"><span>Modelo de Ollama</span><select id="set-modelo"></select></label>
@@ -127,28 +130,61 @@
       <span class="kbd" id="hotkey">Ctrl+Alt+J</span>
     </div>
 
+    <div class="wake-meter" id="wake-meter" hidden title="Puntuación del detector de «Jarvis» en tiempo real. La línea es el umbral: si la barra la cruza, se activa.">
+      <span>DETECTOR</span>
+      <div class="wm-bar"><i id="wm-fill"></i><s id="wm-peak"></s><b id="wm-thr"></b></div>
+      <em id="wm-val">0.00</em>
+    </div>
+
     <div class="dock">
       <div class="dock-group" id="quick-apps"></div>
       <div class="dock-group media">
+        <div class="np" id="np"><i></i><div><b id="np-title">NADA SONANDO</b><small id="np-artist">—</small></div></div>
         <button data-media="prev" title="Anterior"><svg viewBox="0 0 24 24"><path d="M7 6v12M18 6l-8 6 8 6z"/></svg></button>
-        <button data-media="play" title="Play/Pausa"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+        <button data-media="play" title="Play/Pausa" id="np-play"><svg viewBox="0 0 24 24"><path class="ico-play" d="M8 5v14l11-7z"/><path class="ico-pause" d="M8 5v14M16 5v14"/></svg></button>
         <button data-media="next" title="Siguiente"><svg viewBox="0 0 24 24"><path d="M17 6v12M6 6l8 6-8 6z"/></svg></button>
-        <button data-media="down" title="Bajar volumen"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zM16 12h5"/></svg></button>
-        <button data-media="up" title="Subir volumen"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zM16 12h5M18.5 9.5v5"/></svg></button>
-        <button data-media="mute" title="Silenciar"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zM16 9l5 6M21 9l-5 6"/></svg></button>
+        <div class="vol">
+          <button data-media="mute" title="Silenciar" id="vol-mute"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path class="wave" d="M16 9.5a3.5 3.5 0 0 1 0 5"/><path class="cross" d="M16 9l5 6M21 9l-5 6"/></svg></button>
+          <input type="range" id="vol" min="0" max="100" step="1" title="Volumen del sistema">
+          <em id="vol-val">--</em>
+        </div>
       </div>
     </div>
   </section>
 
   <!-- ============ COMUNICACIONES ============ -->
   <section class="panel right">
-    <div class="panel-title"><span>REGISTRO DE COMUNICACIONES</span><em id="msg-count">0</em></div>
-    <div class="log" id="log"></div>
-    <form class="input-row" id="input-form" autocomplete="off">
-      <span class="prompt">&gt;</span>
-      <input id="input" placeholder="Escribe una orden o pregunta…" spellcheck="false">
-      <button type="submit" title="Enviar"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2.5-6.5z"/></svg></button>
-    </form>
+    <div class="panel-title tabs">
+      <button class="tab active" data-tab="chat">COMUNICACIONES <em id="msg-count">000</em></button>
+      <button class="tab" data-tab="mem">MEMORIA <em id="mem-count">0</em></button>
+      <button class="tab" data-tab="act">ACTIVACIONES <em id="act-count">0</em></button>
+    </div>
+
+    <div class="tab-pane" id="pane-chat">
+      <div class="log" id="log"></div>
+      <form class="input-row" id="input-form" autocomplete="off">
+        <span class="prompt">&gt;</span>
+        <input id="input" placeholder="Escribe una orden o pregunta…" spellcheck="false">
+        <button type="submit" title="Enviar"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2.5-6.5z"/></svg></button>
+      </form>
+    </div>
+
+    <div class="tab-pane" id="pane-mem" hidden>
+      <div class="list" id="mem-list"></div>
+      <form class="input-row" id="mem-form" autocomplete="off">
+        <span class="prompt">+</span>
+        <input id="mem-input" placeholder="Añade un dato para recordar…" spellcheck="false" maxlength="200">
+        <button type="submit" title="Guardar"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+      </form>
+      <p class="hint">También por voz: «recuerda que…» y «olvida…». Doble clic en un dato para editarlo.</p>
+    </div>
+
+    <div class="tab-pane" id="pane-act" hidden>
+      <div class="act-summary" id="act-summary"></div>
+      <div class="list" id="act-list"></div>
+      <p class="hint">Cada vez que el detector oye «Jarvis». <b class="ok">CONFIRMADA</b>: Whisper también lo oyó.
+        <b class="no">DESCARTADA</b>: falsa alarma, se ignoró en silencio.</p>
+    </div>
   </section>
 </main>
 

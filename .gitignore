@@ -4,7 +4,15 @@ __pycache__/
 *.pyc
 
 # Modelos pesados (Whisper / Piper) - se descargan aparte
-models/
+models/*
+!models/wakeword/
 
 # Logs
 *.log
+
+# Entrenamiento de la palabra de activación: datos y entorno pesados
+training/data/
+training/.venv/
+
+# Registro de activaciones de «Jarvis» (uso real, personal)
+activaciones.jsonl

@@ -14,6 +14,7 @@ class Memoria:
         self.path = resolve(path)
         self._lock = threading.Lock()
         self.datos: list[dict] = []
+        self.on_change = None  # avisa a la interfaz cuando cambia la memoria
         try:
             self.datos = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -23,6 +24,28 @@ class Memoria:
 
     def _guardar(self):
         self.path.write_text(json.dumps(self.datos, ensure_ascii=False, indent=2), encoding="utf-8")
+        if self.on_change:
+            self.on_change(self.lista())
+
+    def lista(self) -> list[dict]:
+        return [dict(d) for d in self.datos]
+
+    def editar(self, indice: int, dato: str) -> bool:
+        dato = dato.strip().rstrip(".")
+        with self._lock:
+            if not dato or not 0 <= indice < len(self.datos):
+                return False
+            self.datos[indice]["dato"] = dato[0].upper() + dato[1:]
+            self._guardar()
+        return True
+
+    def borrar(self, indice: int) -> bool:
+        with self._lock:
+            if not 0 <= indice < len(self.datos):
+                return False
+            del self.datos[indice]
+            self._guardar()
+        return True
 
     def recordar(self, dato: str) -> str:
         dato = dato.strip().rstrip(".")

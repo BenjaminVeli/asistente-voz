@@ -118,6 +118,9 @@ const handlers = {
       if (d.aborted) $("#state-sub").textContent = "autodestrucción abortada";
     }
   },
+  memoria: (lista) => renderMem(lista),
+  activation: (a) => { acts.push(a); renderActs(); },
+  wake: (w) => renderWake(w),
   tts_engine: (m) => { $("#st-tts b").textContent = m === "piper" ? "PIPER" : "WINDOWS"; },
   status: (s) => {
     const llm = $("#st-llm");
@@ -397,6 +400,166 @@ function drawReactor(ts) {
   requestAnimationFrame(drawReactor);
 }
 
+/* ================= Pestañas del panel derecho ================= */
+function showTab(name) {
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+  document.querySelectorAll(".tab-pane").forEach((p) => { p.hidden = p.id !== `pane-${name}`; });
+  if (name === "chat") $("#log").scrollTop = $("#log").scrollHeight;
+}
+document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab)));
+
+/* ================= Memoria ================= */
+function fmtFecha(iso) {
+  const d = new Date(iso + "T00:00");
+  return isNaN(d) ? iso : d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function renderMem(lista) {
+  const box = $("#mem-list");
+  $("#mem-count").textContent = lista.length;
+  box.innerHTML = "";
+  if (!lista.length) {
+    box.innerHTML = `<div class="empty">Aún no hay nada en memoria.<br>Dile «recuerda que…» o escríbelo abajo.</div>`;
+    return;
+  }
+  lista.forEach((d, i) => {
+    const el = document.createElement("div");
+    el.className = "mem-item";
+    el.innerHTML = `<div><p></p><time></time></div>
+      <button class="edit" title="Editar">✎</button><button class="del" title="Olvidar">✕</button>`;
+    el.querySelector("p").textContent = d.dato;
+    el.querySelector("time").textContent = fmtFecha(d.fecha);
+    el.querySelector("p").addEventListener("dblclick", () => editMem(el, i, d.dato));
+    el.querySelector(".edit").addEventListener("click", () => editMem(el, i, d.dato));
+    el.querySelector(".del").addEventListener("click", () => api() && api().memoria_borrar(i));
+    box.appendChild(el);
+  });
+}
+
+function editMem(el, i, actual) {
+  const p = el.querySelector("p");
+  if (!p) return;
+  const inp = document.createElement("input");
+  inp.value = actual;
+  inp.maxLength = 200;
+  p.replaceWith(inp);
+  inp.focus();
+  inp.select();
+  let hecho = false;
+  const fin = async (guardar) => {
+    if (hecho) return;
+    hecho = true;
+    const v = inp.value.trim();
+    if (guardar && v && v !== actual && api()) await api().memoria_editar(i, v);  // el evento «memoria» repinta
+    else renderMem(await api().get_memoria());
+  };
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") fin(true);
+    if (e.key === "Escape") { e.stopPropagation(); fin(false); }
+  });
+  inp.addEventListener("blur", () => fin(true));
+}
+
+$("#mem-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const v = $("#mem-input").value.trim();
+  if (!v || !api()) return;
+  const r = await api().memoria_agregar(v);
+  const inp = $("#mem-input");
+  if (r.ok) { inp.value = ""; return; }
+  inp.value = "";
+  inp.placeholder = r.error;  // p. ej. «Eso ya lo tenía guardado.»
+  setTimeout(() => { inp.placeholder = "Añade un dato para recordar…"; }, 3000);
+});
+
+/* ================= Activaciones de «Jarvis» ================= */
+let acts = [];
+
+function renderActs() {
+  acts = acts.slice(-200);
+  const ok = acts.filter((a) => a.resultado !== "descartada").length;
+  $("#act-count").textContent = acts.length;
+  $("#act-summary").innerHTML =
+    `<div class="ok"><span>CONFIRMADAS</span><b>${ok}</b></div>` +
+    `<div class="no"><span>DESCARTADAS</span><b>${acts.length - ok}</b></div>` +
+    `<div><span>ACIERTO</span><b>${acts.length ? Math.round((ok / acts.length) * 100) + "%" : "—"}</b></div>`;
+  const box = $("#act-list");
+  box.innerHTML = "";
+  if (!acts.length) {
+    box.innerHTML = `<div class="empty">Sin activaciones todavía.<br>Activa la escucha continua y di «Jarvis».</div>`;
+    return;
+  }
+  for (const a of [...acts].reverse()) {
+    const el = document.createElement("div");
+    const bien = a.resultado !== "descartada";
+    el.className = "act-item" + (bien ? " ok" : "");
+    el.innerHTML = `<time></time><div class="score"><i></i><b></b></div><span class="tag"></span><p><em></em><span></span></p>`;
+    const [dia, hora] = a.hora.split(" ");
+    const hoy = new Date().toISOString().slice(0, 10);
+    el.querySelector("time").textContent = dia === hoy ? hora : `${dia.slice(5).split("-").reverse().join("/")} ${hora.slice(0, 5)}`;
+    el.querySelector(".score i").style.width = Math.min(100, a.puntuacion * 100) + "%";
+    el.querySelector(".score b").style.left = a.umbral * 100 + "%";
+    el.querySelector(".tag").textContent = bien ? "CONFIRMADA" : "DESCARTADA";
+    el.querySelector("p em").textContent = a.puntuacion.toFixed(2);
+    el.querySelector("p span").textContent = a.texto ? `«${a.texto}»` : "(no se entendió nada)";
+    el.title = `Puntuación ${a.puntuacion.toFixed(3)} · umbral ${a.umbral}`;
+    box.appendChild(el);
+  }
+}
+
+/* ================= Indicador del detector ================= */
+const wm = { peak: 0, peakT: 0 };
+
+function renderWake(w) {
+  const box = $("#wake-meter");
+  box.hidden = !w;
+  if (!w) return;
+  const now = performance.now();
+  if (w.p >= wm.peak || now - wm.peakT > 1500) { wm.peak = w.p; wm.peakT = now; }  // el pico se queda 1,5 s
+  $("#wm-fill").style.width = Math.min(100, w.p * 100) + "%";
+  $("#wm-peak").style.left = `calc(${Math.min(100, wm.peak * 100)}% - 1px)`;
+  $("#wm-thr").style.left = `calc(${w.u * 100}% - 1px)`;
+  $("#wm-val").textContent = w.p.toFixed(2);
+  box.classList.toggle("hit", w.p >= w.u);
+}
+
+/* ================= Reproductor ================= */
+let volDragging = false;
+
+function renderMedia(m) {
+  if (!m) return;
+  const p = m.pista;
+  $("#np").classList.toggle("on", !!(p && p.sonando));
+  $("#np-title").textContent = p ? p.titulo : "NADA SONANDO";
+  $("#np-artist").textContent = p ? [p.artista, p.app].filter(Boolean).join(" · ") : "—";
+  $("#np").title = p ? `${p.titulo}${p.artista ? " — " + p.artista : ""} (${p.app})` : "";
+  $("#np-play").classList.toggle("playing", !!(p && p.sonando));
+  const v = m.volumen;
+  $(".vol").hidden = !v;
+  if (v && !volDragging) {
+    $("#vol").value = v.nivel;
+    $("#vol-val").textContent = v.mute ? "MUTE" : v.nivel + "%";
+    $("#vol-mute").classList.toggle("muted", v.mute);
+  }
+}
+
+let mediaTimer, mediaBusy = false;
+async function pollMedia() {
+  if (mediaBusy) return;  // ya hay una consulta en marcha: ella reprograma la siguiente
+  mediaBusy = true;
+  clearTimeout(mediaTimer);
+  try { renderMedia(await api().get_media()); } catch (e) { /* aún arrancando */ }
+  mediaBusy = false;
+  mediaTimer = setTimeout(pollMedia, 2000);
+}
+
+$("#vol").addEventListener("input", (e) => { volDragging = true; $("#vol-val").textContent = e.target.value + "%"; });
+$("#vol").addEventListener("change", async (e) => {
+  if (api()) await api().set_volumen(Number(e.target.value));
+  volDragging = false;
+  pollMedia();
+});
+
 /* ================= Controles ================= */
 $("#btn-mic").addEventListener("click", () => api() && api().listen());
 $("#btn-stop").addEventListener("click", () => api() && api().stop());
@@ -409,7 +572,11 @@ $("#btn-voice").addEventListener("click", () => {
 $("#chk-continuous").addEventListener("change", (e) => api() && api().set_continuous(e.target.checked));
 $("#mic-select").addEventListener("change", (e) => api() && api().set_microfono(e.target.value));
 document.querySelectorAll("[data-media]").forEach((b) =>
-  b.addEventListener("click", () => api() && api().media(b.dataset.media)));
+  b.addEventListener("click", async () => {
+    if (!api()) return;
+    await api().media(b.dataset.media);
+    setTimeout(pollMedia, 400);  // que el título y el volumen se actualicen sin esperar
+  }));
 
 $("#input-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -479,6 +646,11 @@ async function openSettings() {
   $("#set-nombre").value = s.nombre;
   $("#set-trato").value = s.tratamiento;
   $("#set-palabra").value = s.palabra;
+  $("#set-sens").value = 1 - s.umbral; $("#set-sens-val").textContent = sensLabel(1 - s.umbral);
+  $("#set-sens").disabled = !s.activacion_local;
+  $("#set-sens-hint").textContent = s.activacion_local
+    ? "Si se activa sola con la tele o la música, bájala; si le cuesta oírte, súbela."
+    : "Solo con el detector local de «Jarvis» (palabra de activación «jarvis»).";
   $("#settings-status").textContent = "";
   $("#settings").hidden = false;
   $("#btn-settings").classList.add("open");
@@ -501,6 +673,9 @@ $("#set-vel").addEventListener("input", (e) => { $("#set-vel-val").textContent =
 $("#set-vel").addEventListener("change", (e) => saveSetting("velocidad", e.target.value));
 $("#set-vol").addEventListener("input", (e) => { $("#set-vol-val").textContent = Math.round(e.target.value * 100) + "%"; });
 $("#set-vol").addEventListener("change", (e) => saveSetting("volumen", e.target.value));
+function sensLabel(v) { return Math.round(((v - 0.1) / 0.7) * 100) + "%"; }
+$("#set-sens").addEventListener("input", (e) => { $("#set-sens-val").textContent = sensLabel(Number(e.target.value)); });
+$("#set-sens").addEventListener("change", (e) => saveSetting("sensibilidad", e.target.value));
 $("#set-test").addEventListener("click", () => api() && api().test_voice());
 $("#set-modelo").addEventListener("change", (e) => saveSetting("modelo", e.target.value, "✓ modelo cambiado"));
 
@@ -556,6 +731,10 @@ async function init() {
     qa.appendChild(b);
   }
   pollStats();
+  pollMedia();
+  renderMem(await api().get_memoria());
+  acts = await api().get_activaciones();
+  renderActs();
 }
 
 resizeReactor();

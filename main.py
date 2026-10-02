@@ -11,7 +11,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")  # los modelos ya están descargado
 
 import webview
 
-from jarvis import config, media
+from jarvis import config, media, wakeword
 from jarvis.assistant import Assistant
 from jarvis.stt import listar_microfonos
 from jarvis.tts import listar_voces
@@ -136,6 +136,8 @@ class Api:
             "nombre": c["nombre_asistente"],
             "tratamiento": c["tratamiento"],
             "palabra": c.get("palabra_activacion", "jarvis"),
+            "umbral": c.get("umbral_activacion", 0.5),
+            "activacion_local": wakeword.disponible(c),
             "modelos": self._assistant.llm.modelos() if self._assistant else [],
             "modelo": c["modelo_llm"],
         }
@@ -172,6 +174,9 @@ class Api:
                 c["palabra_activacion"] = valor.lower()
                 if a:
                     a.commands.set_palabra(valor)
+                    a.listener.cancel.set()  # la escucha continua se reinicia y elige detector local o Whisper
+        elif clave == "sensibilidad":
+            c["umbral_activacion"] = round(1 - float(valor), 2)
         elif clave == "modelo":
             c["modelo_llm"] = str(valor)
             if a:
@@ -200,6 +205,35 @@ class Api:
                     "mute": media.silenciar}
         if accion in acciones:
             acciones[accion]()
+
+    def get_media(self):
+        """Lo que suena ahora y el volumen del sistema (la interfaz lo consulta cada pocos segundos)."""
+        return {"pista": media.reproduciendo(), "volumen": media.volumen()}
+
+    def set_volumen(self, nivel):
+        if not self._bloqueado():
+            media.fijar_volumen(int(nivel))
+
+    # --- memoria y activaciones ----------------------------------------------
+    def get_memoria(self):
+        return self._assistant.memoria.lista() if self._assistant else []
+
+    def memoria_agregar(self, dato):
+        if not self._assistant or self._bloqueado():
+            return {"ok": False, "error": "No disponible ahora"}
+        r = self._assistant.memoria.recordar(str(dato))
+        return {"ok": r == "Dato guardado en memoria.", "error": r}
+
+    def memoria_editar(self, indice, dato):
+        ok = bool(self._assistant) and not self._bloqueado() and self._assistant.memoria.editar(int(indice), str(dato))
+        return {"ok": ok}
+
+    def memoria_borrar(self, indice):
+        ok = bool(self._assistant) and not self._bloqueado() and self._assistant.memoria.borrar(int(indice))
+        return {"ok": ok}
+
+    def get_activaciones(self):
+        return self._assistant.activaciones if self._assistant else []
 
     def open_app(self, nombre):
         self.send_text(f"abre {nombre}")

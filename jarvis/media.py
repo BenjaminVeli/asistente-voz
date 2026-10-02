@@ -49,10 +49,68 @@ def bajar_volumen(pasos: int = 5):
     _press(VK_VOLUME_DOWN, pasos)
 
 
+def _altavoces():
+    """Control de volumen del dispositivo de salida actual (None si pycaw no está disponible)."""
+    try:
+        import comtypes
+        from pycaw.pycaw import AudioUtilities
+        comtypes.CoInitialize()  # cada hilo que use COM tiene que inicializarlo
+        return AudioUtilities.GetSpeakers().EndpointVolume
+    except Exception:
+        return None
+
+
+def volumen() -> dict | None:
+    """Volumen del sistema: {"nivel": 0-100, "mute": bool}."""
+    v = _altavoces()
+    if v is None:
+        return None
+    try:
+        return {"nivel": round(v.GetMasterVolumeLevelScalar() * 100), "mute": bool(v.GetMute())}
+    except Exception:
+        return None
+
+
 def fijar_volumen(porcentaje: int):
-    porcentaje = max(0, min(100, porcentaje))
+    porcentaje = max(0, min(100, int(porcentaje)))
+    v = _altavoces()
+    if v is not None:
+        try:
+            v.SetMasterVolumeLevelScalar(porcentaje / 100, None)
+            if porcentaje and v.GetMute():
+                v.SetMute(0, None)
+            return
+        except Exception:
+            pass
     _press(VK_VOLUME_DOWN, 50)
     _press(VK_VOLUME_UP, round(porcentaje / 2))
+
+
+def reproduciendo() -> dict | None:
+    """Lo que suena en cualquier reproductor (Spotify, navegador...): título, artista, app y si está en pausa."""
+    try:
+        import asyncio
+        from winrt.windows.media.control import \
+            GlobalSystemMediaTransportControlsSessionManager as Gestor
+    except Exception:
+        return None
+
+    async def leer():
+        s = (await Gestor.request_async()).get_current_session()
+        if not s:
+            return None
+        p = await s.try_get_media_properties_async()
+        if not p.title:
+            return None
+        app = s.source_app_user_model_id or ""
+        app = app.split("!")[-1].removesuffix(".exe").split(".")[-1]
+        return {"titulo": p.title, "artista": p.artist or "", "app": app,
+                "sonando": s.get_playback_info().playback_status == 4}  # 4 = Playing
+
+    try:
+        return asyncio.run(leer())
+    except Exception:
+        return None
 
 
 def spotify_buscar(consulta: str):

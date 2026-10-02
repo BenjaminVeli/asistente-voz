@@ -1,4 +1,5 @@
 """Orquestador: une micrófono, órdenes, modelo de lenguaje y voz, y notifica a la interfaz."""
+import json
 import queue
 import random
 import re
@@ -7,8 +8,9 @@ import time
 from pathlib import Path
 
 import numpy as np
+import sounddevice as sd
 
-from . import media
+from . import media, wakeword
 from .apps import AppIndex
 from .commands import HERRAMIENTAS_CONSULTA, Commands, es_autodestruccion, es_cancelacion
 from .llm import LLM
@@ -20,6 +22,8 @@ from .tts import TTS
 FIN_FRASE = re.compile(r"(.+?[.!?;:])(\s+|$)", re.S)
 PROMPT_CANCELACION = "Función de comando código 10."
 LOG_DESTRUCCION = Path(__file__).resolve().parent.parent / "autodestruccion.log"
+LOG_ACTIVACIONES = Path(__file__).resolve().parent.parent / "activaciones.jsonl"
+MAX_ACTIVACIONES = 200  # las que se cargan al arrancar y se muestran en la interfaz
 
 
 def saludo_inicial(tratamiento: str, hora: int | None = None) -> str:
@@ -86,9 +90,12 @@ class Assistant:
         self.stats = SystemStats()
         self.apps = AppIndex(cfg.get("aliases_apps", {}))
         self.memoria = Memoria()
+        self.memoria.on_change = lambda lista: self.emit("memoria", lista)
+        self.activaciones = self._cargar_activaciones()
         self.llm = LLM(cfg, self.memoria)
         self.tts = TTS(cfg, on_speaking=self._on_speaking, on_level=self._level)
         self.listener = Listener(cfg, on_level=self._level)
+        self.activador = None  # detector local de «Jarvis» (se carga al activar la escucha continua)
         self.commands = Commands(cfg, self.apps, self.stats, self.memoria,
                                  on_clear=self._clear_history, on_stop_voice=self.tts.stop)
 
@@ -274,22 +281,143 @@ class Assistant:
                 return
             self.emit("user", texto)
             if len(resto.split()) == 0:
-                # Solo dijo "Jarvis": responde y espera la orden.
-                self.say(f"¿Sí, {self.cfg['tratamiento']}?")
-                self.tts.wait()
-                self.set_state("listening")
-                self.emit("beep", "start")
-                audio = self.listener.record(start_timeout=6)
-                if audio is None:
-                    self.set_state("listening_wake")
-                    return
-                self.set_state("transcribing")
-                texto = self.listener.transcribe(audio)
+                texto = self._pedir_orden()
                 if not texto:
-                    self.set_state("listening_wake")
                     return
-                self.emit("user", texto)
         else:
+            self.emit("user", texto)
+        self.handle_text(texto, por_voz=True)
+
+    def _pedir_orden(self) -> str | None:
+        """Solo dijo «Jarvis»: responde y espera la orden."""
+        self.say(f"¿Sí, {self.cfg['tratamiento']}?")
+        self.tts.wait()
+        self.set_state("listening")
+        self.emit("beep", "start")
+        audio = self.listener.record(start_timeout=6)
+        if audio is None:
+            self.set_state("listening_wake")
+            return None
+        self.set_state("transcribing")
+        texto = self.listener.transcribe(audio)
+        if not texto:
+            self.set_state("listening_wake")
+            return None
+        self.emit("user", texto)
+        return texto
+
+    # --- palabra de activación local ------------------------------------
+    PREVIO_S = 1.6     # audio anterior a la detección que se pasa a Whisper (para que oiga «Jarvis»)
+    MUY_SEGURO = 1.01  # con esta puntuación se aceptaría la orden sin que Whisper oiga «Jarvis» (>1: siempre confirma)
+
+    def _activador_local(self):
+        """El detector de «Jarvis»; None si no se puede usar (entonces se activa con Whisper, como antes)."""
+        if not wakeword.disponible(self.cfg):
+            return None
+        if self.activador is None:
+            try:
+                self.activador = wakeword.Activador(self.cfg)
+                print("[activacion] Detector local de «Jarvis» cargado")
+            except Exception as e:
+                print(f"[activacion] No se pudo cargar el detector local: {e}")
+                self.cfg["activacion_local"] = False
+                return None
+        return self.activador
+
+    @staticmethod
+    def _cargar_activaciones() -> list[dict]:
+        try:
+            lineas = LOG_ACTIVACIONES.read_text(encoding="utf-8").splitlines()[-MAX_ACTIVACIONES:]
+            return [json.loads(l) for l in lineas if l.strip()]
+        except FileNotFoundError:
+            return []
+        except Exception as e:
+            print(f"[activacion] No se pudo leer {LOG_ACTIVACIONES.name}: {e}")
+            return []
+
+    def _registrar_activacion(self, pico: float, resultado: str, texto: str):
+        """Guarda cada vez que saltó el detector y qué pasó después, para medir el modelo en uso real."""
+        a = {"hora": time.strftime("%Y-%m-%d %H:%M:%S"), "puntuacion": round(pico, 3),
+             "umbral": round(float(self.cfg.get("umbral_activacion", 0.5)), 2), "resultado": resultado,
+             "texto": texto or ""}
+        self.activaciones = (self.activaciones + [a])[-MAX_ACTIVACIONES:]
+        try:
+            with open(LOG_ACTIVACIONES, "a", encoding="utf-8") as f:
+                f.write(json.dumps(a, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+        self.emit("activation", a)
+
+    def _esperar_palabra(self, act):
+        """Escucha con el detector hasta oír «Jarvis» y graba la orden sin cerrar el micrófono.
+
+        Devuelve (audio previo con la palabra, audio de la orden o None, puntuación máxima) o None si se
+        interrumpe la escucha (se apaga el modo continuo, autodestrucción...).
+        """
+        n_previo = int(self.PREVIO_S * 16000 / wakeword.TROZO)
+        previo: list[np.ndarray] = []
+        act.reset()
+        self.listener.cancel.clear()
+        en_pausa = False
+        pico_ventana, t_envio = 0.0, 0.0  # la puntuación se manda a la interfaz ~10 veces por segundo
+        try:
+            with sd.InputStream(samplerate=16000, channels=1, dtype="float32", device=self.listener.device,
+                                blocksize=wakeword.TROZO) as stream:
+                while self._continuous.is_set() and not self._destruct.is_set() and not self.listener.cancel.is_set():
+                    chunk = stream.read(wakeword.TROZO)[0][:, 0].copy()
+                    if self.tts.busy or self._busy.locked():
+                        # Mientras habla o trabaja no escucha: no debe activarse con su propia voz.
+                        if not en_pausa:
+                            self.emit("wake", {"p": 0.0, "u": act.umbral})
+                        en_pausa, previo = True, []
+                        self._level(0.0)
+                        continue
+                    if en_pausa:
+                        act.reset()
+                        en_pausa = False
+                    previo = (previo + [chunk])[-n_previo:]
+                    self._level(min(1.0, float(np.sqrt(np.mean(chunk ** 2))) * 12))
+                    p = act.puntuar(chunk)
+                    pico_ventana = max(pico_ventana, p)
+                    if time.time() - t_envio > 0.1 or p >= act.umbral:
+                        self.emit("wake", {"p": round(pico_ventana, 3), "u": act.umbral})
+                        pico_ventana, t_envio = 0.0, time.time()
+                    if p < act.umbral:
+                        continue
+                    # ¡Jarvis! Unos trozos más para ver hasta dónde sube la puntuación, y luego la orden.
+                    # Sin pitido todavía: solo se avisa cuando Whisper confirme que era «Jarvis».
+                    pico = p
+                    for _ in range(3):
+                        c = stream.read(wakeword.TROZO)[0][:, 0].copy()
+                        previo.append(c)
+                        pico = max(pico, act.puntuar(c))
+                    orden = self.listener.record(start_timeout=1.2, max_seconds=6, silence_s=0.9, stream=stream)
+                    print(f"[activacion] «Jarvis» detectado (puntuación {pico:.2f})")
+                    return np.concatenate(previo), orden, pico
+        finally:
+            self.emit("wake", None)  # se oculta el indicador: ya no escucha con el detector
+        return None
+
+    def _tras_palabra(self, previo, orden, pico):
+        self.set_state("transcribing")
+        audio = previo if orden is None else np.concatenate([previo, orden])
+        texto = self.listener.transcribe(audio)
+        activado, resto = self.commands.quitar_activacion(texto) if texto else (False, "")
+        if not activado and pico < self.MUY_SEGURO:
+            # Ni Whisper oye «Jarvis» ni el detector está muy seguro: probablemente era la tele.
+            print(f"[activacion] descartado: «{texto}» (puntuación {pico:.2f})")
+            self._registrar_activacion(pico, "descartada", texto)
+            self.set_state("listening_wake")
+            return
+        self._registrar_activacion(pico, "confirmada" if activado else "aceptada", texto)
+        if orden is None or not resto.strip():
+            texto = self._pedir_orden()
+            if not texto:
+                return
+        else:
+            self.emit("beep", "start")
+            if not activado:
+                texto = f"{self.cfg.get('palabra_activacion', 'jarvis').capitalize()}, {texto}"
             self.emit("user", texto)
         self.handle_text(texto, por_voz=True)
 
@@ -308,6 +436,19 @@ class Assistant:
         self.listener.ready.wait()
         self.set_state("listening_wake")
         while self._continuous.is_set():
+            act = None if self._destruct.is_set() else self._activador_local()
+            if act:
+                try:
+                    oido = self._esperar_palabra(act)
+                except Exception as e:
+                    self.emit("error", f"Error con el micrófono: {e}")
+                    time.sleep(2)
+                    continue
+                if oido and self._continuous.is_set():
+                    self._tras_palabra(*oido)
+                    if not self._destruct.is_set():
+                        self.tts.wait()
+                continue
             destruct = self._destruct.is_set()
             try:
                 # En autodestrucción se escucha en trozos cortos.

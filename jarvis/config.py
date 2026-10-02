@@ -21,6 +21,11 @@ DEFAULTS = {
     "voz_activada": True,
     "palabra_activacion": "jarvis",
     "escucha_continua": False,
+    # Palabra de activación local (openWakeWord, entrenada en training/). Si está desactivada o la palabra
+    # no es «Jarvis», se activa como antes: transcribiendo todo con Whisper.
+    "activacion_local": True,
+    "modelo_activacion": "models/wakeword/jarvis.onnx",
+    "umbral_activacion": 0.5,
     "atajo_teclado": "ctrl+alt+j",
     "aliases_apps": {
         "navegador": "Google Chrome",
